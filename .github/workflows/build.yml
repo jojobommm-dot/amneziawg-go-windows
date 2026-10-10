@@ -1,0 +1,83 @@
+# Builds amneziawg-go for Windows from an official upstream tag and publishes it
+# as a release of this repository (one release per upstream tag).
+# Runs every day; a tag that already has a release is not built again.
+name: Build amneziawg-go for Windows
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Upstream tag of amnezia-vpn/amneziawg-go (empty = the newest)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find the upstream tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="$INPUT_TAG"
+          if [ -z "$tag" ]; then
+            tag=$(gh api repos/amnezia-vpn/amneziawg-go/tags --jq '.[0].name')
+          fi
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9][0-9A-Za-z.\-]*$'; then
+            echo "Unexpected tag: $tag" >&2; exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $tag exists already: nothing to do."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the upstream source
+        if: steps.tag.outputs.build == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: amnezia-vpn/amneziawg-go
+          ref: ${{ steps.tag.outputs.tag }}
+          path: src
+
+      - name: Set up Go
+        if: steps.tag.outputs.build == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache: false
+
+      - name: Build
+        if: steps.tag.outputs.build == 'true'
+        working-directory: src
+        env:
+          CGO_ENABLED: '0'
+          GOOS: windows
+        run: |
+          mkdir -p ../out
+          for arch in amd64 arm64 386; do
+            GOARCH=$arch go build -trimpath -ldflags '-s -w' -o "../out/amneziawg-go-windows-$arch.exe" .
+          done
+          cp LICENSE ../out/LICENSE
+          cd ../out
+          sha256sum amneziawg-go-windows-*.exe > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish the release
+        if: steps.tag.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          commit=$(git -C src rev-parse HEAD)
+          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" \
+            --title "amneziawg-go $TAG for Windows" \
+            --notes "Built by GitHub Actions from the official [amnezia-vpn/amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go) tag \`$TAG\` (commit \`$commit\`), unmodified: \`CGO_ENABLED=0 GOOS=windows go build -trimpath -ldflags '-s -w'\`. Needs \`wintun.dll\` next to it. SHA-256 of every file: \`SHA256SUMS\` and the asset digests shown by GitHub."
