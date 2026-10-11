@@ -15,7 +15,7 @@ builds them.
   [amneziawg-tools](https://github.com/amnezia-vpn/amneziawg-tools/releases). Upstream calls the
   Windows build a test program; for a full Windows client see [amnezia.org](https://amnezia.org).
 
-Used by AppVpn (a private Xray / sing-box / AmneziaWG client for Windows) to update its AmneziaWG core.
+Used by appVpnWindows (a private Xray / sing-box / AmneziaWG client for Windows) to update its AmneziaWG core.
 
 ## License
 
